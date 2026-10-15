@@ -87,11 +87,30 @@
   }
 
   // -------------------------------------------------------------- run
+  // Any control that affects the mission marks results stale and (if a
+  // mission is already shown) triggers an automatic rebuild — otherwise the
+  // panel silently keeps showing the PREVIOUS scenario/parameters, which
+  // reads as a wrong campaign count.
+  function scheduleRun() {
+    if (!state.data) return;
+    if (!state.mission) { updateScenarioNote(); return; }
+    updateScenarioNote();
+    markStale();
+    clearTimeout(state.rebuildTimer);
+    state.rebuildTimer = setTimeout(run, 250);
+  }
+
+  function markStale() {
+    const m = $('metrics');
+    if (m) m.classList.add('stale');
+  }
+
   async function run() {
     if (state.running || !state.data) return;
     state.running = true;
     $('btn-run').textContent = 'Working…';
     $('btn-run').disabled = true;
+    $('metrics').classList.remove('stale');
 
     // let the button paint before the synchronous build
     await new Promise(r => setTimeout(r, 30));
@@ -378,12 +397,16 @@
   function wire() {
     $('btn-run').addEventListener('click', run);
     $('btn-reset').addEventListener('click', () => window.location.reload());
-    $('sel-scenario').addEventListener('change', updateScenarioNote);
-    $('rng-vmin').addEventListener('input', e => $('out-vmin').textContent = e.target.value);
-    $('rng-vmax').addEventListener('input', e => $('out-vmax').textContent = e.target.value);
-    $('rng-wac').addEventListener('input', e => $('out-wac').textContent = e.target.value);
-    $('rng-rate').addEventListener('input', e => $('out-rate').textContent = parseFloat(e.target.value).toFixed(1));
-    $('rng-avail').addEventListener('input', e => $('out-avail').textContent = e.target.value);
+    $('sel-scenario').addEventListener('change', scheduleRun);
+    $('rng-vmin').addEventListener('input', e => { $('out-vmin').textContent = e.target.value; scheduleRun(); });
+    $('rng-vmax').addEventListener('input', e => { $('out-vmax').textContent = e.target.value; scheduleRun(); });
+    $('rng-wac').addEventListener('input', e => { $('out-wac').textContent = e.target.value; scheduleRun(); });
+    $('rng-rate').addEventListener('input', e => { $('out-rate').textContent = parseFloat(e.target.value).toFixed(1); scheduleRun(); });
+    $('rng-avail').addEventListener('input', e => { $('out-avail').textContent = e.target.value; scheduleRun(); });
+    for (const id of ['chk-heels', 'chk-quadrants']) {
+      $(id).addEventListener('change', scheduleRun);
+    }
+    document.getElementById('wac-overrides').addEventListener('change', scheduleRun);
     window.addEventListener('resize', () => {
       if (state.mission) { renderGlassChart(); renderWLChart(); }
     });

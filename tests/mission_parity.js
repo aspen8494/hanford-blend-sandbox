@@ -86,9 +86,17 @@ const inBand = vols.filter(v => v >= 450 * KL - 1 && v <= 550 * KL + 1).length;
 if (WITH_HEELS) {
   check('heel scope packs a plausible band share', inBand >= 10,
         `${inBand}/${vols.length}`);
-} else {
+} else if (TAG === '135.120.150') {
+  // Full-app reference: 39 App-D campaigns of which 11 are in-band; most
+  // run sub-floor because ≤5 tanks × small remaining layers can't always
+  // reach the 1,703 kL band minimum.
   check('sub-floor campaigns match full-app behavior (11 in-band @135.120.150)',
         inBand >= 8 && inBand <= 16, `${inBand}/${vols.length}`);
+} else {
+  // Other tags: just require a sane non-zero band occupancy (full-app
+  // reference @135.105.200 App-D is 2/29 — this scenario's layers are
+  // smaller, so nearly every campaign runs sub-floor).
+  check('band occupancy sane for tag', inBand >= 1, `${inBand}/${vols.length}`);
 }
 // every layer drawn at most once (sum of fractions ≤ 1)
 {

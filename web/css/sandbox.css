@@ -121,6 +121,13 @@ details.wac-advanced summary {
   letter-spacing: 0.08em; color: var(--muted);
 }
 .m-value { font-size: 22px; font-weight: 600; font-family: var(--mono); }
+/* stale-results marker: metrics dim + amber edge while a rebuild is queued */
+.metrics.stale .metric { opacity: 0.45; border-color: #7c5c1e; }
+.metrics.stale::after {
+  content: "parameters changed — rebuilding…";
+  display: block; margin-top: 6px;
+  color: #f59e0b; font-size: 12px;
+}
 
 /* ---------- charts ---------- */
 .chart-panel svg { width: 100%; height: auto; display: block; }

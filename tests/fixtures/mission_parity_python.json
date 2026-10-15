@@ -4,6 +4,13 @@
   "total_waste_kg": 11353348.655407598,
   "total_glass_kg": 25006618.889130168,
   "canisters": 8074.465253190238,
-  "seconds": 51.7
+  "seconds": 53.6
+ },
+ "135.105.200": {
+  "n_campaigns": 29,
+  "total_waste_kg": 5493121.365786581,
+  "total_glass_kg": 16545804.830720479,
+  "canisters": 5342.526584023403,
+  "seconds": 42.3
  }
 }
