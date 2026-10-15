@@ -292,12 +292,12 @@
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
     svg.appendChild(svgEl('polyline', {
-      points: pts, fill: 'none', stroke: '#0f172a', 'stroke-width': 1.4 }));
+      points: pts, fill: 'none', stroke: '#f97316', 'stroke-width': 1.6 }));
     evals.forEach((e, i) => {
       const x = pad.l + ((i + 0.5) * cw) / n;
       const y = pad.t + ch - (e.waste_loading / wlMax) * ch;
       svg.appendChild(svgEl('circle', { cx: x.toFixed(1), cy: y.toFixed(1),
-                                       r: 1.6, fill: '#0f172a' }));
+                                       r: 1.6, fill: '#f97316' }));
     });
 
     const t = svgEl('text', { x: W / 2, y: H - 6, 'text-anchor': 'middle',

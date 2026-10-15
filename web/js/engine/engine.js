@@ -311,44 +311,90 @@
         return (fa - fb) || (remaining[b] - remaining[a]);
       });
 
+      // ---- refine ladder (port of ewg/campaign_builder.refine_campaign) --
+      // Branch order and semantics must match Python EXACTLY, else the walk
+      // diverges (JS 94 vs Python 76 campaigns): Python's full-WAC LP is
+      // INFEASIBLE for most SE candidates (60%-scaled SolidsLoading band
+      // [10%, 13.2%] excludes layers at 15%), so the campaigns actually come
+      // from the relaxed/water-fill branches — labeled 'lp' in Python either
+      // way.
+      const cap = Vmax / MAX_TANKS_PER_CAMPAIGN;
       const cand = activeSet.filter(id => remaining[id] > 1e-3);
       if (!cand.length) { inFlight = {}; nC--; continue; }
-
-      // LP setup
-      const cap = Vmax / MAX_TANKS_PER_CAMPAIGN;
       const avail = cand.map(id => Math.min(remaining[id], cap));
+      // Python: kg_per_kL = total_kg / avail AFTER the cap (not raw slurry)
       const kgPerKl = cand.map(id =>
-        (layersById[id].total_kg || 0) / Math.max(slurryKL(layersById[id]), 1e-9));
-      const { rows, dropped } = wacRowsFor(cand.map(id => layersById[id]), limits);
-      for (const k of dropped) droppedAll.add(k);
+        (layersById[id].total_kg || 0) / Math.max(Math.min(remaining[id], cap), 1e-9));
+      const candLayers = cand.map(id => layersById[id]);
 
-      const A = [cand.map(() => 1), cand.map(() => -1)];
-      const b = [Vmax, -Vmin];
-      for (const row of rows) { A.push(row); b.push(0); }
+      // WAC rows exactly as Python builds them: NO per-criterion drop
+      // conditions, '>=' as (-a + lim), range_10_22 as hi/lo pair with
+      // fraction conversion.
+      const buildRows = (limOverride) => {
+        const rows = [];
+        for (const key of Object.keys(limits)) {
+          const lim = limits[key];
+          if (!isFinite(lim)) continue;
+          const a = candLayers.map(l => layerCrit(l, key));
+          if (!a.some(v => v != null && v > 0)) continue;
+          const zeroed = a.map(v => (v == null ? 0 : v));
+          const dir = WAC_DIRECTION[key] || '<=';
+          const eff = limOverride ? limOverride(key, zeroed, lim) : null;
+          if (dir === '<=') {
+            const limEff = eff != null ? eff : lim;
+            rows.push(zeroed.map(v => v - limEff));
+          } else if (dir === '>=') {
+            const limEff = eff != null ? eff : lim;
+            rows.push(zeroed.map(v => limEff - v));
+          } else if (dir === 'range') {
+            // range_10_22 in Python: lo=0.10, hi=lim if lim>0.5 else 22;
+            // if lim < 1: hi = lim*100 — then /100 → FRACTION band
+            let hi = lim > 0.5 ? lim : 22.0;
+            if (lim < 1) hi = lim * 100.0;
+            const loF = 10.0 > 1 ? 10.0 / 100 : 10.0;
+            const hiF = hi > 1 ? hi / 100.0 : hi;
+            rows.push(zeroed.map(v => v - hiF));
+            rows.push(zeroed.map(v => loF - v));
+          }
+        }
+        return rows;
+      };
 
-      let sol = LP.solve(kgPerKl.map(v => -v), A, b, { hi: avail });
+      const solveLP = (A, b, hi) => LP.solve(kgPerKl.map(v => -v), A, b, { hi });
+      const volRows = [cand.map(() => 1), cand.map(() => -1)];
+      const volB = [Vmax, -Vmin];
+
+      let take = null;
       let mode = 'lp';
-      let take;
-      if (sol.status !== 'optimal') {
-        // ladder: volume-only LP, then proportional fill (matches full app)
-        sol = LP.solve(kgPerKl.map(v => -v), A.slice(0, 2), b.slice(0, 2), { hi: avail });
-        if (sol.status !== 'optimal') {
-          const tot = avail.reduce((s, v) => s + v, 0);
-          const scale = Math.min(1, Vmax / Math.max(tot, 1e-9));
-          take = avail.map(v => v * scale);
-          mode = 'proportional-fallback';
-          sol = null;
-        } else {
-          mode = 'volume-only-lp';
+
+      // branch 1: full WAC
+      {
+        const A = volRows.concat(buildRows(null));
+        const sol = solveLP(A, volB, avail);
+        if (sol.status === 'optimal') take = sol.x;
+      }
+      // branch 2: volume-only first, then limEff-relaxed WAC
+      if (take === null) {
+        const solV = solveLP(volRows, volB, avail);
+        if (solV.status === 'optimal' && solV.x.reduce((s, v) => s + v, 0) >= Vmin) {
+          // limEff = max(max_j a_j * 0.99, lim) per criterion
+          const solR = solveLP(
+            volRows.concat(buildRows((key, a, lim) => Math.max(Math.max(...a) * 0.99, lim))),
+            volB, avail);
+          if (solR.status === 'optimal') take = solR.x;
         }
       }
-      if (sol) take = sol.x;
-
-      // §6.2 min-transfer: takes below the 38 kL minimum are zeroed
-      {
-        const floor = Math.min(minTransfer, 0.05 * Vmax);
-        const pruned = take.map(v => (v < floor ? 0 : v));
-        if (pruned.reduce((s, v) => s + v, 0) > 1e-3) take = pruned;
+      // last resort: pure water-fill (Python's in-refine fallback)
+      if (take === null) {
+        const sumAvail = avail.reduce((s, v) => s + v, 0);
+        take = avail.map(v => Math.min(v, Vmax * v / Math.max(sumAvail, 1e-9)));
+        let sum = take.reduce((s, v) => s + v, 0);
+        if (sum < Vmin) {
+          const scale = Vmin / Math.max(sum, 1e-9);
+          take = avail.map((v, i) => Math.min(v, take[i] * scale));
+          sum = take.reduce((s, v) => s + v, 0);
+        }
+        mode = sum < Vmin ? 'proportional-fallback' : 'lp';
       }
 
       const totalVol = take.reduce((s, v) => s + v, 0);
@@ -368,8 +414,7 @@
       }
       if (!recipe.length) { inFlight = {}; nC--; continue; }
 
-      // WAC blend values for display
-      const candLayers = cand.map(id => layersById[id]);
+      // WAC blend values for display (reuses the candLayers built above)
       const wacValues = {};
       for (const key of Object.keys(limits)) {
         const val = blendValue(candLayers, take, key);
