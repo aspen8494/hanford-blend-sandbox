@@ -1,0 +1,14 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Regenerable fixtures are COMMITTED (they pin parity), so nothing here
+# ignores tests/fixtures.

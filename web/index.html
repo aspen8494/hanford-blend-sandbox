@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hanford HLW Blend Sandbox — mission planner</title>
+  <meta name="description" content="An in-browser sandbox of the Hanford HLW campaign-blending problem: pack waste blends into a volume band under WAC constraints and watch the glass mass respond.">
+  <link rel="stylesheet" href="css/sandbox.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>HLW Blend Sandbox</h1>
+      <span class="tagline">campaign planner &middot; RPP-RPT-64878 §6.2 &middot; EWG2.5 glass models</span>
+    </div>
+    <div class="top-actions">
+      <button id="btn-run" class="primary">Build mission</button>
+      <button id="btn-reset">Reset</button>
+      <a class="help-link" href="#about">About</a>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ---------------- sidebar: controls ---------------- -->
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Scenario</h2>
+        <label class="field">
+          <span>Blend condition <code>xxx.yyy.zzz</code></span>
+          <select id="sel-scenario"></select>
+        </label>
+        <p class="hint" id="scenario-note"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Campaign volume band</h2>
+        <div class="range-row">
+          <label>Min <output id="out-vmin">450</output> kgal</label>
+          <input type="range" id="rng-vmin" min="300" max="550" step="10" value="450">
+        </div>
+        <div class="range-row">
+          <label>Max <output id="out-vmax">550</output> kgal</label>
+          <input type="range" id="rng-vmax" min="450" max="700" step="10" value="550">
+        </div>
+        <p class="hint">Paper §6.2 default: 450–550 kgal per campaign.</p>
+      </section>
+
+      <section class="panel">
+        <h2>WAC scaling (§6.2)</h2>
+        <div class="range-row">
+          <label>Base scale <output id="out-wac">60</output>%</label>
+          <input type="range" id="rng-wac" min="10" max="100" step="5" value="60">
+        </div>
+        <details class="wac-advanced">
+          <summary>Per-criterion overrides</summary>
+          <div id="wac-overrides"></div>
+        </details>
+        <p class="hint">Limits scale each criterion's regulatory hard limit;
+          UFis/UTot and NOₓ stay at 90% per Table 6-1.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Scope</h2>
+        <label class="check">
+          <input type="checkbox" id="chk-heels" checked>
+          <span>Include retrieval heels (<code>_H1</code> layers)</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="chk-quadrants" checked>
+          <span>Enforce quadrant order (SE→NE→NW→SW)</span>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Mission rates</h2>
+        <div class="range-row">
+          <label>Glass rate <output id="out-rate">5.0</output> t/d</label>
+          <input type="range" id="rng-rate" min="1" max="10" step="0.5" value="5">
+        </div>
+        <div class="range-row">
+          <label>Melter availability <output id="out-avail">65</output>%</label>
+          <input type="range" id="rng-avail" min="20" max="100" step="5" value="65">
+        </div>
+      </section>
+    </aside>
+
+    <!-- ---------------- main: results ---------------- -->
+    <div class="content">
+      <section class="metrics" id="metrics" hidden>
+        <div class="metric"><span class="m-label">Campaigns</span><span class="m-value" id="m-campaigns">–</span></div>
+        <div class="metric"><span class="m-label">Waste oxide</span><span class="m-value" id="m-waste">–</span></div>
+        <div class="metric"><span class="m-label">Glass mass</span><span class="m-value" id="m-glass">–</span></div>
+        <div class="metric"><span class="m-label">Canisters</span><span class="m-value" id="m-canisters">–</span></div>
+        <div class="metric"><span class="m-label">Avg WL</span><span class="m-value" id="m-wl">–</span></div>
+        <div class="metric"><span class="m-label">Duration</span><span class="m-value" id="m-duration">–</span></div>
+      </section>
+
+      <section class="panel" id="drop-note" hidden></section>
+
+      <section class="panel chart-panel">
+        <h2>Glass mass per campaign</h2>
+        <div id="chart-glass" class="chart"></div>
+      </section>
+
+      <section class="panel chart-panel">
+        <h2>Waste loading & volume band</h2>
+        <div id="chart-wl" class="chart"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Campaigns</h2>
+        <div class="table-scroll">
+          <table id="tbl-campaigns">
+            <thead>
+              <tr>
+                <th>#</th><th>Quad</th><th>Layers (tanks)</th>
+                <th class="num">Volume kL</th><th class="num">Vol kgal</th>
+                <th class="num">Waste t</th><th class="num">WL</th>
+                <th class="num">Glass t</th><th class="num">Canisters</th>
+                <th>WAC</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="campaign-detail" hidden>
+        <h2>Campaign detail <span id="detail-title" class="mono"></span></h2>
+        <div id="detail-body"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer id="about" class="about">
+    <h2>About this sandbox</h2>
+    <p>
+      A scaled-down, fully client-side cousin of the campaign builder:
+      pack waste blends into a volume band under WAC constraints and watch
+      the glass mass respond.  All computation runs in your browser —
+      no server, no data leaves this page.
+    </p>
+    <p>
+      Data: 38 App-D DFHLW feed layers (+ retrieval heels) with per-layer
+      oxide vectors and WAP values from RPP-RPT-64878-01; glass property
+      models from PNNL-35884 Rev. 1 (EWG2.5).  The sandbox reproduces the
+      full application's campaign counts, waste totals, glass mass, and
+      canister counts within a few percent (see the repo's parity tests).
+      A marketing overview, not an engineering basis: results here are
+      computed with the same algorithms but a reduced data scope.
+    </p>
+  </footer>
+
+  <script src="js/engine/lp.js"></script>
+  <script src="js/engine/sqp.js"></script>
+  <script src="js/engine/glass.js"></script>
+  <script src="js/engine/engine.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
